@@ -40,8 +40,8 @@ var (
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the app-name version",
-	Long: `The version command prints the version of app-name along with a git
+	Short: "Print the sesh version",
+	Long: `The version command prints the version of sesh along with a git
 commit hash of the source tree, OS, architecture, go version, and build date.`,
 	Run: func(_ *cobra.Command, _ []string) {
 		formatVersion := Version

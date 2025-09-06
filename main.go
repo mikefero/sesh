@@ -20,7 +20,7 @@ package main
 import (
 	_ "embed"
 
-	"github.com/mikefero/go-template/internal/cmd"
+	"github.com/mikefero/sesh/internal/cmd"
 )
 
 //go:embed LICENSE

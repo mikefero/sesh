@@ -8,17 +8,16 @@ SHELL := /usr/bin/env bash
 
 .DEFAULT_GOAL := help
 
-# Use https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow&t=App-Name to generate
-# ANSI Shadow title for application name
 .PHONY: help
 help: ## Display this help screen
 	@echo ''
-	@echo ' █████╗ ██████╗ ██████╗       ███╗   ██╗ █████╗ ███╗   ███╗███████╗'
-	@echo '██╔══██╗██╔══██╗██╔══██╗      ████╗  ██║██╔══██╗████╗ ████║██╔════╝'
-	@echo '███████║██████╔╝██████╔╝█████╗██╔██╗ ██║███████║██╔████╔██║█████╗'
-	@echo '██╔══██║██╔═══╝ ██╔═══╝ ╚════╝██║╚██╗██║██╔══██║██║╚██╔╝██║██╔══╝'
-	@echo '██║  ██║██║     ██║           ██║ ╚████║██║  ██║██║ ╚═╝ ██║███████╗'
-	@echo '╚═╝  ╚═╝╚═╝     ╚═╝           ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════'
+	@echo '███████╗███████╗███████╗██╗  ██╗'
+	@echo '██╔════╝██╔════╝██╔════╝██║  ██║'
+	@echo '███████╗█████╗  ███████╗███████║'
+	@echo '╚════██║██╔══╝  ╚════██║██╔══██║'
+	@echo '███████║███████╗███████║██║  ██║'
+	@echo '╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝'
+
 	@echo ''
 	@# Display top-level targets since they are the ones most developes will need.
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort -k1 | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
@@ -33,10 +32,10 @@ help: ## Display this help screen
 			awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' ; \
 	done
 
-APP_NAME := app-name
+APP_NAME := sesh
 APP_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 APP_WORKDIR := $(shell pwd)
-APP_PACKAGE := github.com/mikefero/go-template/internal/cmd
+APP_PACKAGE := github.com/mikefero/sesh/internal/cmd
 
 include $(APP_DIR)/mk/build.mk
 include $(APP_DIR)/mk/common.mk

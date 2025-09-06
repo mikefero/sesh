@@ -32,9 +32,9 @@ type Options struct {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "app-name",
-	Short: "Application Name",
-	Long:  `The app-name description.`,
+	Use:   "sesh",
+	Short: "Sesh",
+	Long:  `Golang library for parsing, filtering, and analyzing Kong Gateway logs.`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

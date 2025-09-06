@@ -25,8 +25,8 @@ import (
 
 var licenseCmd = &cobra.Command{
 	Use:   "license",
-	Short: "Print app-name license",
-	Long:  `The license command prints the license of app-name.`,
+	Short: "Print sesh license",
+	Long:  `The license command prints the license of sesh.`,
 	Run: func(_ *cobra.Command, _ []string) {
 		fmt.Println(license) //nolint:forbidigo
 	},
