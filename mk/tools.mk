@@ -2,7 +2,7 @@
 # Tools tooling
 # --------------------------------------------------
 
-GOLANGCI_LINT_VERSION ?= v2.0.2
+GOLANGCI_LINT_VERSION ?= v2.4.0
 
 # Ensure curl and gofumpt are available
 ifeq (, $(shell which curl 2> /dev/null))
