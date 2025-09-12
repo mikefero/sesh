@@ -18,16 +18,12 @@ limitations under the License.
 package main
 
 import (
-	_ "embed"
-
+	"github.com/mikefero/sesh"
 	"github.com/mikefero/sesh/internal/cmd"
 )
 
-//go:embed LICENSE
-var license string
-
 func main() {
 	cmd.Execute(cmd.Options{
-		License: license,
+		License: sesh.License,
 	})
 }

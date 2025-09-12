@@ -32,4 +32,4 @@ endef
 .PHONY: build
 build: ## Build the application
 	@CGO_ENABLED=0 go build -ldflags "$(APP_LDFLAGS_BUILD)" \
-		-o "$(APP_DIR)/bin/$(APP_NAME)" "$(APP_DIR)"
+		-o "$(APP_DIR)/bin/$(APP_NAME)" "$(APP_DIR)/cmd/$(APP_NAME)"
