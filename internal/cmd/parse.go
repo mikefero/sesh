@@ -32,13 +32,14 @@ import (
 )
 
 var (
-	jsonOutput       bool
-	prettyJSONOutput bool
-	noColor          bool
-	rawOutput        bool
-	showResults      bool
-	quiet            bool
-	flushTimeout     time.Duration
+	parseJSONOutput       bool
+	parsePrettyJSONOutput bool
+	parseCLEFOutput       bool
+	parseNoColor          bool
+	parseRawOutput        bool
+	parseShowResults      bool
+	parseQuiet            bool
+	parseFlushTimeout     time.Duration
 )
 
 var parseCmd = &cobra.Command{
@@ -81,10 +82,11 @@ var parseCmd = &cobra.Command{
 
 		// Create the parser
 		parser := sesh.NewParser()
-		parser = parser.WithFlushTimeout(flushTimeout)
-		parser = parser.WithEntryCallback(func(entry *sesh.LogEntry) {
-			if !quiet {
-				outputEntry(entry, jsonOutput, prettyJSONOutput, noColor, rawOutput)
+		parser = parser.WithFlushTimeout(parseFlushTimeout)
+		parser = parser.WithCLEF(parseCLEFOutput)
+		parser = parser.WithEntryCallback(func(entry sesh.LogEntry) {
+			if !parseQuiet {
+				outputEntry(entry)
 			}
 		})
 
@@ -99,7 +101,7 @@ var parseCmd = &cobra.Command{
 		}
 
 		// Output results if requested
-		if showResults {
+		if parseShowResults {
 			if err := outputResults(result); err != nil {
 				fmt.Fprintf(os.Stderr, "Error outputting results: %v\n", err)
 			}
@@ -110,38 +112,22 @@ var parseCmd = &cobra.Command{
 }
 
 // outputEntry outputs a single log entry with the specified formatting.
-func outputEntry(entry *sesh.LogEntry, jsonOutput, prettyJSON, noColor, includeRaw bool) {
-	if jsonOutput {
-		outputJSONEntry(entry, prettyJSON, noColor, includeRaw)
-		return
-	}
-	outputRawEntry(entry, noColor)
-}
+func outputEntry(entry sesh.LogEntry) {
+	var jsonString string
 
-// outputJSONEntry outputs a log entry as JSON.
-func outputJSONEntry(entry *sesh.LogEntry, prettyJSON, noColor, includeRaw bool) {
-	// Create a copy of the entry to potentially modify
-	outputEntry := *entry
-
-	// If includeRaw is false, remove the raw_message field
-	if !includeRaw {
-		outputEntry.RawMessage = nil
-	}
-
-	var jsonData []byte
-	var err error
-	if prettyJSON {
-		jsonData, err = json.MarshalIndent(&outputEntry, "", "  ")
+	// Determine output format
+	if parseJSONOutput {
+		if jsonData, err := jsonEntry(entry); err == nil {
+			jsonString = string(jsonData)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error outputting JSON: %v\n", err)
+		}
 	} else {
-		jsonData, err = json.Marshal(&outputEntry)
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error marshaling entry to JSON: %v\n", err)
-		return
+		jsonString = rawEntry(entry)
 	}
 
-	jsonString := string(jsonData)
-	if !noColor {
+	// Convert to string and colorize if needed
+	if !parseNoColor {
 		jsonString = colorizeByLogLevel(jsonString, entry.Level)
 	}
 
@@ -149,18 +135,35 @@ func outputJSONEntry(entry *sesh.LogEntry, prettyJSON, noColor, includeRaw bool)
 	fmt.Println(jsonString)
 }
 
-// outputRawEntry outputs a log entry as raw text with optional coloring.
-func outputRawEntry(entry *sesh.LogEntry, noColor bool) {
-	rawMessage := strings.Join(entry.RawMessage, "\n")
-	if noColor {
-		//nolint:forbidigo
-		fmt.Println(rawMessage)
-		return
+// jsonEntry constructs a log entry as JSON.
+func jsonEntry(entry sesh.LogEntry) ([]byte, error) {
+	// If rawOutput is false, remove the raw_message field
+	if !parseRawOutput {
+		entry.RawMessage = nil
 	}
 
-	coloredMessage := colorizeByLogLevel(rawMessage, entry.Level)
-	//nolint:forbidigo
-	fmt.Println(coloredMessage)
+	var jsonData []byte
+	var err error
+	if parsePrettyJSONOutput {
+		jsonData, err = json.MarshalIndent(entry, "", "  ")
+	} else {
+		jsonData, err = json.Marshal(entry)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal entry: %w", err)
+	}
+
+	return jsonData, nil
+}
+
+// rawEntry constructs a log entry as raw text with optional coloring.
+func rawEntry(entry sesh.LogEntry) string {
+	rawMessage := strings.Join(entry.RawMessage, "\n")
+	if parseNoColor {
+		return rawMessage
+	}
+
+	return colorizeByLogLevel(rawMessage, entry.Level)
 }
 
 // colorizeByLogLevel adds ANSI color codes based on log level.
@@ -302,12 +305,13 @@ func init() {
 	rootCmd.AddCommand(parseCmd)
 
 	// Add flags
-	parseCmd.Flags().DurationVar(&flushTimeout, "flush-timeout", sesh.DefaultFlushTimeout,
+	parseCmd.Flags().DurationVar(&parseFlushTimeout, "flush-timeout", sesh.DefaultFlushTimeout,
 		"Timeout to flush incomplete multi-line entries when streaming")
-	parseCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable syntax coloring")
-	parseCmd.Flags().BoolVar(&showResults, "results", false, "Show parsing statistics and errors at the end")
-	parseCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output structured JSON instead of raw messages")
-	parseCmd.Flags().BoolVar(&prettyJSONOutput, "pretty", false, "Pretty-print JSON output")
-	parseCmd.Flags().BoolVar(&rawOutput, "raw", false, "Output raw_message field in JSON output")
-	parseCmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress all parsed log output (useful with --results)")
+	parseCmd.Flags().BoolVar(&parseNoColor, "no-color", false, "Disable syntax coloring")
+	parseCmd.Flags().BoolVar(&parseShowResults, "results", false, "Show parsing statistics and errors at the end")
+	parseCmd.Flags().BoolVar(&parseJSONOutput, "json", false, "Output structured JSON instead of raw messages")
+	parseCmd.Flags().BoolVar(&parsePrettyJSONOutput, "pretty", false, "Pretty-print JSON output")
+	parseCmd.Flags().BoolVar(&parseCLEFOutput, "clef", false, "Output JSON in CLEF (Compact Log Event Format)")
+	parseCmd.Flags().BoolVar(&parseRawOutput, "raw", false, "Output raw_message field in JSON output")
+	parseCmd.Flags().BoolVar(&parseQuiet, "quiet", false, "Suppress all parsed log output (useful with --results)")
 }

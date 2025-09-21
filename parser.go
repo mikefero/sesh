@@ -43,7 +43,9 @@ type Parser struct {
 	// FlushTimeout is the timeout for flushing incomplete entries in streaming mode
 	FlushTimeout time.Duration
 	// EntryCallback is called for each parsed entry
-	EntryCallback func(*LogEntry)
+	EntryCallback func(LogEntry)
+	// CLEF indicates whether entries should be formatted in CLEF format
+	CLEF bool
 }
 
 // NewParser creates a new Kong Gateway log parser with default settings.
@@ -61,8 +63,14 @@ func (p *Parser) WithFlushTimeout(timeout time.Duration) *Parser {
 
 // WithEntryCallback sets a callback function that will be called for each parsed entry
 // and returns the parser.
-func (p *Parser) WithEntryCallback(callback func(*LogEntry)) *Parser {
+func (p *Parser) WithEntryCallback(callback func(LogEntry)) *Parser {
 	p.EntryCallback = callback
+	return p
+}
+
+// WithCLEF enables or disables CLEF formatting for parsed entries and returns the parser.
+func (p *Parser) WithCLEF(enabled bool) *Parser {
+	p.CLEF = enabled
 	return p
 }
 
@@ -296,6 +304,7 @@ func (p *Parser) processLine(line string, lineNumber int, currentEntry []string,
 			Level:      LogLevelUnknown,
 			Message:    strings.TrimSpace(line),
 			RawMessage: []string{line},
+			clef:       p.CLEF,
 		}
 
 		result.Stats.ParsedEntries++
@@ -310,8 +319,8 @@ func (p *Parser) processLine(line string, lineNumber int, currentEntry []string,
 		})
 		result.Stats.ErrorCount++
 
-		// Process the orphaned entry
-		p.EntryCallback(orphanedEntry)
+		// Process the orphaned entry; create copy for goroutine
+		go p.EntryCallback(*orphanedEntry)
 	}
 
 	return currentEntry
@@ -320,14 +329,15 @@ func (p *Parser) processLine(line string, lineNumber int, currentEntry []string,
 // processEntry is a helper to parse and add an entry to results.
 func (p *Parser) processEntry(entryLines []string, result *ParseResult) {
 	entry := p.parseLogEntry(entryLines)
+	entry.clef = p.CLEF
 
 	// Update stats and call callback
 	result.Stats.ParsedEntries++
 	result.Stats.EntryTypeCount[entry.Type]++
 	result.Stats.LogLevelCount[entry.Level]++
 
-	// Call callback (required to be set)
-	p.EntryCallback(entry)
+	// Create a copy of the entry for the goroutine to avoid race conditions
+	go p.EntryCallback(*entry)
 }
 
 // isLogEntryStart determines if a line starts a new log entry.

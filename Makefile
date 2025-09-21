@@ -40,5 +40,6 @@ APP_PACKAGE := github.com/mikefero/sesh/internal/cmd
 include $(APP_DIR)/mk/build.mk
 include $(APP_DIR)/mk/common.mk
 include $(APP_DIR)/mk/dev.mk
+include $(APP_DIR)/mk/docker.mk
 include $(APP_DIR)/mk/test.mk
 include $(APP_DIR)/mk/tools.mk

@@ -52,6 +52,70 @@ type LogEntry struct {
 	HTTPRequest *HTTPRequestInfo `json:"http_request,omitempty"`
 	// RawMessage contains the original log lines that formed this entry
 	RawMessage []string `json:"raw_message,omitempty"`
+
+	// clef indicates whether this entry should be rendered in CLEF format
+	clef bool `json:"-"`
+}
+
+// MarshalJSON implements the json.Marshaler interface for LogEntry.
+func (le LogEntry) MarshalJSON() ([]byte, error) {
+	if le.clef {
+		clefLevel := le.Level.String()
+		switch clefLevel {
+		case "debug":
+			clefLevel = "Debug"
+		case "info":
+			//nolint:goconst
+			clefLevel = "Information"
+		case "notice":
+			clefLevel = "Information"
+		case "warn":
+			clefLevel = "Warning"
+		case "error":
+			clefLevel = "Error"
+		case "alert":
+			clefLevel = "Error"
+		case "crit":
+			clefLevel = "Fatal"
+		case "unknown":
+			clefLevel = "Information"
+		}
+
+		//nolint:wrapcheck
+		return json.Marshal(struct {
+			Timestamp        *time.Time        `json:"@t,omitempty"`
+			RawTimestamp     string            `json:"raw_timestamp,omitempty"`
+			Level            string            `json:"@l"`
+			ProcessID        *int              `json:"process_id,omitempty"`
+			WorkerID         *int              `json:"worker_id,omitempty"`
+			RequestID        *int              `json:"request_id,omitempty"`
+			Message          string            `json:"@m"`
+			MultilineContent []string          `json:"multiline_content,omitempty"`
+			Type             LogEntryType      `json:"@i"`
+			Namespace        string            `json:"namespace,omitempty"`
+			Fields           map[string]string `json:"fields,omitempty"`
+			HTTPRequest      *HTTPRequestInfo  `json:"http_request,omitempty"`
+			RawMessage       []string          `json:"raw_message,omitempty"`
+		}{
+			Timestamp:        le.Timestamp,
+			RawTimestamp:     le.RawTimestamp,
+			Level:            clefLevel,
+			ProcessID:        le.ProcessID,
+			WorkerID:         le.WorkerID,
+			RequestID:        le.RequestID,
+			Message:          le.Message,
+			MultilineContent: le.MultilineContent,
+			Type:             le.Type,
+			Namespace:        le.Namespace,
+			Fields:           le.Fields,
+			HTTPRequest:      le.HTTPRequest,
+			RawMessage:       le.RawMessage,
+		})
+	}
+
+	type Alias LogEntry
+	//nolint:wrapcheck
+	return json.Marshal(Alias(le))
 }
 
 // LogLevel represents the severity level of a log entry.
