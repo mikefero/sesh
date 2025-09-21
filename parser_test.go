@@ -34,22 +34,22 @@ import (
 // TestEntryCollector is a helper for collecting entries via callback in tests
 type TestEntryCollector struct {
 	mu      sync.Mutex
-	entries []*LogEntry
+	entries []LogEntry
 }
 
 func NewTestEntryCollector() *TestEntryCollector {
 	return &TestEntryCollector{
-		entries: make([]*LogEntry, 0),
+		entries: make([]LogEntry, 0),
 	}
 }
 
-func (c *TestEntryCollector) Callback(entry *LogEntry) {
+func (c *TestEntryCollector) Callback(entry LogEntry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries = append(c.entries, entry)
 }
 
-func (c *TestEntryCollector) Entries() []*LogEntry {
+func (c *TestEntryCollector) Entries() []LogEntry {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.entries
@@ -61,7 +61,7 @@ func (c *TestEntryCollector) Reset() {
 	c.entries = c.entries[:0]
 }
 
-func (c *TestEntryCollector) WaitForEntries(expectedCount int, timeout time.Duration) []*LogEntry {
+func (c *TestEntryCollector) WaitForEntries(expectedCount int, timeout time.Duration) []LogEntry {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		c.mu.Lock()
@@ -148,9 +148,17 @@ func TestParser(t *testing.T) {
 		})
 
 		t.Run("with entry callback", func(t *testing.T) {
-			callback := func(*LogEntry) {}
+			callback := func(LogEntry) {}
 			parser := NewParser().WithEntryCallback(callback)
 			assert.NotNil(t, parser.EntryCallback)
+		})
+
+		t.Run("with CLEF", func(t *testing.T) {
+			parser := NewParser().WithCLEF(true)
+			assert.True(t, parser.CLEF)
+
+			parser = NewParser().WithCLEF(false)
+			assert.False(t, parser.CLEF)
 		})
 	})
 
@@ -1169,7 +1177,7 @@ This is unparseable`
 		})
 
 		t.Run("parseStreamingReader error from errChan", func(t *testing.T) {
-			parser := NewParser().WithEntryCallback(func(*LogEntry) {})
+			parser := NewParser().WithEntryCallback(func(LogEntry) {})
 			reader := &errorAfterReader{data: "irrelevant", errorAfter: 0}
 			result, err := parser.ParseReader(context.Background(), reader)
 			assert.Error(t, err)

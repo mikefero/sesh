@@ -38,7 +38,7 @@ func main() {
 	logs := `2025/01/09 10:30:45 [error] 1234#0: *5678 database connection failed
 172.17.0.1 - - [09/Jan/2025:10:30:45 +0000] "GET /api/health HTTP/1.1" 404 15 "-" "curl/7.68.0"`
 
-	parser := sesh.NewParser().WithEntryCallback(func(entry *sesh.LogEntry) {
+	parser := sesh.NewParser().WithEntryCallback(func(entry sesh.LogEntry) {
 		data, _ := json.MarshalIndent(entry, "", "  ")
 		fmt.Println(string(data))
 	})
@@ -136,7 +136,7 @@ import (
 func main() {
 	parser := sesh.NewParser().
 		WithFlushTimeout(3 * time.Second).
-		WithEntryCallback(func(entry *sesh.LogEntry) {
+		WithEntryCallback(func(entry sesh.LogEntry) {
 			data, _ := json.MarshalIndent(entry, "", "  ")
 			fmt.Println(string(data))
 		})
@@ -174,7 +174,7 @@ func main() {
 invalid log line that cannot be parsed
 nginx: [notice] nginx/1.21.6`
 
-	parser := sesh.NewParser().WithEntryCallback(func(entry *sesh.LogEntry) {
+	parser := sesh.NewParser().WithEntryCallback(func(entry sesh.LogEntry) {
 		data, _ := json.MarshalIndent(entry, "", "  ")
 		fmt.Println(string(data))
 	})
@@ -229,7 +229,7 @@ stack traceback:
 	/usr/local/share/lua/5.1/resty/timerng/thread/loop.lua:144: in function 'do_phase_handler'
 	/usr/local/share/lua/5.1/resty/timerng/thread/loop.lua:170: in function </usr/local/share/lua/5.1/resty/timerng/thread/loop.lua:162>, context: ngx.timer`
 
-	parser := sesh.NewParser().WithEntryCallback(func(entry *sesh.LogEntry) {
+	parser := sesh.NewParser().WithEntryCallback(func(entry sesh.LogEntry) {
 		fmt.Printf("=== %s Log Entry ===\n", entry.Type.String())
 		fmt.Printf("Level: %s\n", entry.Level.String())
 		fmt.Printf("Message: %s\n", entry.Message)
@@ -274,7 +274,7 @@ func main() {
 2025/01/09 15:18:33 [warn] 1234#0: [clustering] failed to connect to control plane
 172.17.0.1 - - [09/Jan/2025:10:30:45 +0000] "POST /api/users HTTP/1.1" 201 156 "-" "MyApp/1.0" kong_request_id=req-abc123`
 
-	parser := sesh.NewParser().WithEntryCallback(func(entry *sesh.LogEntry) {
+	parser := sesh.NewParser().WithEntryCallback(func(entry sesh.LogEntry) {
 		fmt.Printf("=== %s Entry ===\n", entry.Type.String())
 		fmt.Printf("Message: %s\n", entry.Message)
 
@@ -305,6 +305,61 @@ func main() {
 }
 ```
 
+## CLEF Format Support
+
+Sesh supports outputting log entries in CLEF (Compact Log Event Format) for integration with
+structured logging systems like Seq. When CLEF formatting is enabled, field names and log levels
+are transformed to match Serilog standards.
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/mikefero/sesh"
+)
+
+func main() {
+	logs := `2025/01/09 10:30:45 [error] 1234#0: *5678 database connection failed
+172.17.0.1 - - [09/Jan/2025:10:30:45 +0000] "GET /api/health HTTP/1.1" 404 15 "-" "curl/7.68.0"`
+
+	parser := sesh.NewParser().
+		WithCLEF(true).
+		WithEntryCallback(func(entry sesh.LogEntry) {
+			// Entry will be automatically formatted in CLEF when marshaled
+			data, _ := json.MarshalIndent(entry, "", "  ")
+			fmt.Println(string(data))
+		})
+
+	result, err := parser.ParseReader(context.Background(), strings.NewReader(logs))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("\nParsed %d entries in CLEF format\n", result.Stats.ParsedEntries)
+}
+```
+
+**CLEF Field Mappings:**
+- `timestamp` → `@t`
+- `message` → `@m`
+- `level` → `@l`
+- `type` → `@i`
+
+**Kong Log Level to Serilog Level Mapping:**
+- `debug` → `Debug`
+- `info` → `Information`
+- `notice` → `Information`
+- `warn` → `Warning`
+- `error` → `Error`
+- `alert` → `Error`
+- `crit` → `Fatal`
+- `unknown` → `Information`
+
 ## CLI Tool
 
 Sesh includes a command-line tool for parsing log files:
@@ -334,4 +389,30 @@ tail -f /usr/local/kong/logs/access.log | \
 
 # Disable color output
 ./bin/sesh parse --no-color /usr/local/kong/logs/access.log
+
+# Send logs to Seq in CLEF format
+./bin/sesh seq /usr/local/kong/logs/access.log
+
+# Send from stdin to Seq with custom batch size
+tail -f /usr/local/kong/logs/access.log \
+  /usr/local/kong/logs/admin_access.log \
+  /usr/local/kong/logs/debug_error.log | \
+  ./bin/sesh seq --batch-size 500 --
+
+# Custom Seq server URL
+./bin/sesh seq --url http://your-seq-server:5480/ingest/clef /path/to/logs
 ```
+
+## Docker Operations
+
+Start and stop Seq server for log analysis:
+
+```bash
+# Start Seq server and wait for it to be ready
+make seq-start
+
+# Stop Seq server
+make seq-stop
+```
+
+The Seq web interface will be available at http://localhost:5480 once started.

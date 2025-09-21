@@ -1,0 +1,15 @@
+services:
+  seq:
+    image: datalust/seq:latest
+    container_name: seq
+    ports:
+      - "5480:80"
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_NOAUTHENTICATION=true
+    networks:
+      - seq
+
+networks:
+  seq:
+    driver: bridge

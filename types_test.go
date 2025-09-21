@@ -297,4 +297,93 @@ func TestTypes(t *testing.T) {
 			assert.False(t, exists)
 		})
 	})
+
+	t.Run("LogEntry", func(t *testing.T) {
+		t.Run("MarshalJSON standard format", func(t *testing.T) {
+			entry := LogEntry{
+				Level:   LogLevelInfo,
+				Message: "test message",
+				Type:    LogEntryTypeKongApplication,
+				clef:    false, // Standard format
+			}
+
+			data, err := json.Marshal(entry)
+			require.NoError(t, err)
+
+			var result map[string]interface{}
+			err = json.Unmarshal(data, &result)
+			require.NoError(t, err)
+
+			// Standard format should have original field names
+			assert.Equal(t, "info", result["level"])
+			assert.Equal(t, "test message", result["message"])
+			assert.Equal(t, "kong", result["type"])
+		})
+
+		t.Run("MarshalJSON CLEF format", func(t *testing.T) {
+			entry := LogEntry{
+				Level:   LogLevelInfo,
+				Message: "test message",
+				Type:    LogEntryTypeKongApplication,
+				clef:    true, // CLEF format
+			}
+
+			data, err := json.Marshal(entry)
+			require.NoError(t, err)
+
+			var result map[string]interface{}
+			err = json.Unmarshal(data, &result)
+			require.NoError(t, err)
+
+			// CLEF format should have transformed field names
+			assert.Equal(t, "Information", result["@l"])
+			assert.Equal(t, "test message", result["@m"])
+			assert.Equal(t, "kong", result["@i"])
+
+			// Original field names should not be present
+			_, exists := result["level"]
+			assert.False(t, exists)
+			_, exists = result["message"]
+			assert.False(t, exists)
+			_, exists = result["type"]
+			assert.False(t, exists)
+		})
+
+		t.Run("MarshalJSON CLEF level mappings", func(t *testing.T) {
+			testCases := []struct {
+				name     string
+				level    LogLevel
+				expected string
+			}{
+				{"debug to Debug", LogLevelDebug, "Debug"},
+				{"info to Information", LogLevelInfo, "Information"},
+				{"notice to Information", LogLevelNotice, "Information"},
+				{"warn to Warning", LogLevelWarn, "Warning"},
+				{"error to Error", LogLevelError, "Error"},
+				{"alert to Error", LogLevelAlert, "Error"},
+				{"crit to Fatal", LogLevelCritical, "Fatal"},
+				{"unknown to Information", LogLevelUnknown, "Information"},
+			}
+
+			for _, tc := range testCases {
+				t.Run(tc.name, func(t *testing.T) {
+					entry := LogEntry{
+						Level:   tc.level,
+						Message: "test",
+						Type:    LogEntryTypeKongApplication,
+						clef:    true,
+					}
+
+					data, err := json.Marshal(entry)
+					require.NoError(t, err)
+
+					var result map[string]interface{}
+					err = json.Unmarshal(data, &result)
+					require.NoError(t, err)
+
+					assert.Equal(t, tc.expected, result["@l"])
+				})
+			}
+		})
+	})
 }
