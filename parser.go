@@ -40,44 +40,44 @@ const DefaultFlushTimeout = 2 * time.Second
 
 // Parser provides Kong Gateway log parsing functionality.
 type Parser struct {
-	// FlushTimeout is the timeout for flushing incomplete entries in streaming mode
-	FlushTimeout time.Duration
-	// EntryCallback is called for each parsed entry
-	EntryCallback func(LogEntry)
-	// CLEF indicates whether entries should be formatted in CLEF format
-	CLEF bool
+	// flushTimeout is the timeout for flushing incomplete entries in streaming mode
+	flushTimeout time.Duration
+	// entryCallback is called for each parsed entry
+	entryCallback func(LogEntry)
+	// clef indicates whether entries should be formatted in clef format
+	clef bool
 }
 
 // NewParser creates a new Kong Gateway log parser with default settings.
 func NewParser() *Parser {
 	return &Parser{
-		FlushTimeout: DefaultFlushTimeout,
+		flushTimeout: DefaultFlushTimeout,
 	}
 }
 
 // WithFlushTimeout sets a custom flush timeout for streaming mode and returns the parser.
 func (p *Parser) WithFlushTimeout(timeout time.Duration) *Parser {
-	p.FlushTimeout = timeout
+	p.flushTimeout = timeout
 	return p
 }
 
 // WithEntryCallback sets a callback function that will be called for each parsed entry
 // and returns the parser.
 func (p *Parser) WithEntryCallback(callback func(LogEntry)) *Parser {
-	p.EntryCallback = callback
+	p.entryCallback = callback
 	return p
 }
 
 // WithCLEF enables or disables CLEF formatting for parsed entries and returns the parser.
 func (p *Parser) WithCLEF(enabled bool) *Parser {
-	p.CLEF = enabled
+	p.clef = enabled
 	return p
 }
 
 // ParseReader parses Kong Gateway logs from an io.Reader.
 // Requires a callback to be set for processing entries.
 func (p *Parser) ParseReader(ctx context.Context, reader io.Reader) (*ParseResult, error) {
-	if p.EntryCallback == nil {
+	if p.entryCallback == nil {
 		return nil, fmt.Errorf("entry callback is required; use WithEntryCallback() to set one")
 	}
 
@@ -148,7 +148,7 @@ func (p *Parser) parseCommon(ctx context.Context, reader io.Reader,
 	// Note: nil channel blocks forever in select, effectively disabling timeout case
 	var timeoutChan <-chan time.Time
 	if useTimeout {
-		timeoutChan = time.After(p.FlushTimeout)
+		timeoutChan = time.After(p.flushTimeout)
 	}
 
 	for {
@@ -188,7 +188,7 @@ func (p *Parser) parseCommon(ctx context.Context, reader io.Reader,
 					currentEntry = nil // Clear the buffer after flushing
 				}
 				// Reset timeout for next flush cycle
-				timeoutChan = time.After(p.FlushTimeout)
+				timeoutChan = time.After(p.flushTimeout)
 			}
 		}
 	}
@@ -304,7 +304,7 @@ func (p *Parser) processLine(line string, lineNumber int, currentEntry []string,
 			Level:      LogLevelUnknown,
 			Message:    strings.TrimSpace(line),
 			RawMessage: []string{line},
-			clef:       p.CLEF,
+			clef:       p.clef,
 		}
 
 		result.Stats.ParsedEntries++
@@ -320,7 +320,7 @@ func (p *Parser) processLine(line string, lineNumber int, currentEntry []string,
 		result.Stats.ErrorCount++
 
 		// Process the orphaned entry; create copy for goroutine
-		go p.EntryCallback(*orphanedEntry)
+		go p.entryCallback(*orphanedEntry)
 	}
 
 	return currentEntry
@@ -329,7 +329,7 @@ func (p *Parser) processLine(line string, lineNumber int, currentEntry []string,
 // processEntry is a helper to parse and add an entry to results.
 func (p *Parser) processEntry(entryLines []string, result *ParseResult) {
 	entry := p.parseLogEntry(entryLines)
-	entry.clef = p.CLEF
+	entry.clef = p.clef
 
 	// Update stats and call callback
 	result.Stats.ParsedEntries++
@@ -337,7 +337,7 @@ func (p *Parser) processEntry(entryLines []string, result *ParseResult) {
 	result.Stats.LogLevelCount[entry.Level]++
 
 	// Create a copy of the entry for the goroutine to avoid race conditions
-	go p.EntryCallback(*entry)
+	go p.entryCallback(*entry)
 }
 
 // isLogEntryStart determines if a line starts a new log entry.

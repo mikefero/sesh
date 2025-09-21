@@ -136,29 +136,29 @@ func TestParser(t *testing.T) {
 	t.Run("constructor", func(t *testing.T) {
 		parser := NewParser()
 		assert.NotNil(t, parser)
-		assert.Equal(t, DefaultFlushTimeout, parser.FlushTimeout)
-		assert.Nil(t, parser.EntryCallback)
+		assert.Equal(t, DefaultFlushTimeout, parser.flushTimeout)
+		assert.Nil(t, parser.entryCallback)
 	})
 
 	t.Run("configuration", func(t *testing.T) {
 		t.Run("with flush timeout", func(t *testing.T) {
 			timeout := 5 * time.Second
 			parser := NewParser().WithFlushTimeout(timeout)
-			assert.Equal(t, timeout, parser.FlushTimeout)
+			assert.Equal(t, timeout, parser.flushTimeout)
 		})
 
 		t.Run("with entry callback", func(t *testing.T) {
 			callback := func(LogEntry) {}
 			parser := NewParser().WithEntryCallback(callback)
-			assert.NotNil(t, parser.EntryCallback)
+			assert.NotNil(t, parser.entryCallback)
 		})
 
 		t.Run("with CLEF", func(t *testing.T) {
 			parser := NewParser().WithCLEF(true)
-			assert.True(t, parser.CLEF)
+			assert.True(t, parser.clef)
 
 			parser = NewParser().WithCLEF(false)
-			assert.False(t, parser.CLEF)
+			assert.False(t, parser.clef)
 		})
 	})
 
@@ -945,7 +945,7 @@ This is unparseable`
 	t.Run("parsing errors create unknown entries", func(t *testing.T) {
 		collector := NewTestEntryCollector()
 		parser := NewParser()
-		parser.EntryCallback = collector.Callback
+		parser.entryCallback = collector.Callback
 
 		// Create content that looks like a Kong log start but has invalid timestamp format
 		// This should trigger isLogEntryStart but fail in parseKongLog
@@ -968,7 +968,7 @@ This is unparseable`
 	t.Run("kong log parsing edge cases", func(t *testing.T) {
 		collector := NewTestEntryCollector()
 		parser := NewParser()
-		parser.EntryCallback = collector.Callback
+		parser.entryCallback = collector.Callback
 
 		t.Run("invalid connection id", func(t *testing.T) {
 			kongLog := `2020/07/07 12:30:45 [info] 123#456: *invalid_connection message content`
@@ -1111,7 +1111,7 @@ This is unparseable`
 		t.Run("scanner error handling", func(t *testing.T) {
 			collector := NewTestEntryCollector()
 			parser := NewParser()
-			parser.EntryCallback = collector.Callback
+			parser.entryCallback = collector.Callback
 
 			// Create a reader that will cause scanner errors
 			errorReader := &errorAfterReader{data: "2020/07/07 12:30:45 [info] 123#456: test message\n", errorAfter: 10}
@@ -1124,7 +1124,7 @@ This is unparseable`
 			collector := NewTestEntryCollector()
 			parser := NewParser()
 			parser.WithFlushTimeout(1 * time.Millisecond)
-			parser.EntryCallback = collector.Callback
+			parser.entryCallback = collector.Callback
 
 			// Create a slow reader that will trigger timeout
 			slowReader := &slowReader{
