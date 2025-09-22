@@ -47,7 +47,7 @@ type LogEntry struct {
 	// Namespace is the Kong namespace; e.g., plugin name, service context, or other identifier
 	Namespace string `json:"namespace,omitempty"`
 	// Fields contains parsed structured fields from the log entry
-	Fields map[string]string `json:"fields,omitempty"`
+	Fields map[string]interface{} `json:"fields,omitempty"`
 	// HTTPRequest contains HTTP request information for access logs
 	HTTPRequest *HTTPRequestInfo `json:"http_request,omitempty"`
 	// RawMessage contains the original log lines that formed this entry
@@ -93,7 +93,7 @@ func (le LogEntry) MarshalJSON() ([]byte, error) {
 			MultilineContent []string          `json:"multiline_content,omitempty"`
 			Type             LogEntryType      `json:"@i"`
 			Namespace        string            `json:"namespace,omitempty"`
-			Fields           map[string]string `json:"fields,omitempty"`
+			Fields           map[string]interface{} `json:"fields,omitempty"`
 			HTTPRequest      *HTTPRequestInfo  `json:"http_request,omitempty"`
 			RawMessage       []string          `json:"raw_message,omitempty"`
 		}{

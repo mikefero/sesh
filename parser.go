@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "embed"
@@ -38,6 +39,9 @@ var License string
 // DefaultFlushTimeout is the default timeout for flushing incomplete entries in streaming mode.
 const DefaultFlushTimeout = 2 * time.Second
 
+// DefaultCallbackTimeout is the default timeout for waiting for callback processing to complete.
+const DefaultCallbackTimeout = 10 * time.Second
+
 // Parser provides Kong Gateway log parsing functionality.
 type Parser struct {
 	// flushTimeout is the timeout for flushing incomplete entries in streaming mode
@@ -46,12 +50,17 @@ type Parser struct {
 	entryCallback func(LogEntry)
 	// clef indicates whether entries should be formatted in clef format
 	clef bool
+	// callbackTimeout is how long to wait for all callback processing to finish before giving up
+	callbackTimeout time.Duration
+	// wg tracks goroutines for callback processing
+	wg sync.WaitGroup
 }
 
 // NewParser creates a new Kong Gateway log parser with default settings.
 func NewParser() *Parser {
 	return &Parser{
-		flushTimeout: DefaultFlushTimeout,
+		flushTimeout:    DefaultFlushTimeout,
+		callbackTimeout: DefaultCallbackTimeout,
 	}
 }
 
@@ -74,6 +83,13 @@ func (p *Parser) WithCLEF(enabled bool) *Parser {
 	return p
 }
 
+// WithCallbackTimeout sets how long to wait for all callback processing to finish before giving
+// up and returns the parser.
+func (p *Parser) WithCallbackTimeout(timeout time.Duration) *Parser {
+	p.callbackTimeout = timeout
+	return p
+}
+
 // ParseReader parses Kong Gateway logs from an io.Reader.
 // Requires a callback to be set for processing entries.
 func (p *Parser) ParseReader(ctx context.Context, reader io.Reader) (*ParseResult, error) {
@@ -81,10 +97,35 @@ func (p *Parser) ParseReader(ctx context.Context, reader io.Reader) (*ParseResul
 		return nil, fmt.Errorf("entry callback is required; use WithEntryCallback() to set one")
 	}
 
+	var result *ParseResult
+	var err error
+
 	if isStreaming(reader) {
-		return p.parseStreamingReader(ctx, reader)
+		result, err = p.parseStreamingReader(ctx, reader)
+	} else {
+		result, err = p.parseFileReader(ctx, reader)
 	}
-	return p.parseFileReader(ctx, reader)
+
+	// Wait for all callback goroutines to complete with timeout
+	p.waitForCallbacks()
+
+	return result, err
+}
+
+// waitForCallbacks waits for all callback goroutines to complete with the configured timeout.
+func (p *Parser) waitForCallbacks() {
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines completed
+	case <-time.After(p.callbackTimeout):
+		// Timeout reached - proceed anyway
+	}
 }
 
 // Regular expressions for detecting and parsing log entries.
@@ -320,9 +361,12 @@ func (p *Parser) processLine(line string, lineNumber int, currentEntry []string,
 		result.Stats.ErrorCount++
 
 		// Process the orphaned entry; create copy for goroutine
-		go p.entryCallback(*orphanedEntry)
+		p.wg.Add(1)
+		go func(entry LogEntry) {
+			defer p.wg.Done()
+			p.entryCallback(entry)
+		}(*orphanedEntry)
 	}
-
 	return currentEntry
 }
 
@@ -337,7 +381,11 @@ func (p *Parser) processEntry(entryLines []string, result *ParseResult) {
 	result.Stats.LogLevelCount[entry.Level]++
 
 	// Create a copy of the entry for the goroutine to avoid race conditions
-	go p.entryCallback(*entry)
+	p.wg.Add(1)
+	go func(entry LogEntry) {
+		defer p.wg.Done()
+		p.entryCallback(entry)
+	}(*entry)
 }
 
 // isLogEntryStart determines if a line starts a new log entry.
@@ -356,7 +404,7 @@ func (p *Parser) parseLogEntry(lines []string) *LogEntry {
 	entry := &LogEntry{
 		RawMessage:       lines,
 		MultilineContent: multilineContent,
-		Fields:           make(map[string]string),
+		Fields:           make(map[string]interface{}),
 	}
 
 	// Try parsing as different log types
@@ -421,15 +469,29 @@ func (p *Parser) parseKongLog(entry *LogEntry, line string) bool {
 		}
 	}
 
-	// Extract namespace; look for bracketed content that isn't source info
+	// Extract namespace and additional tags; look for bracketed content that isn't source info
 	namespaceMatches := namespaceRegex.FindAllStringSubmatch(messageContent, -1)
+	validNamespaceCount := 0
 	for _, match := range namespaceMatches {
 		namespace := match[1]
 		// Skip source types like "lua", "kong"
-		if namespace != "lua" && namespace != "kong" {
-			entry.Namespace = namespace
-			break
+		if namespace == "lua" || namespace == "kong" {
+			continue
 		}
+
+		if validNamespaceCount == 0 {
+			// First valid namespace becomes the primary namespace
+			entry.Namespace = namespace
+		} else {
+			// Additional namespaces become tags - add directly to fields as array
+			if entry.Fields["tags"] == nil {
+				entry.Fields["tags"] = []string{}
+			}
+			if tags, ok := entry.Fields["tags"].([]string); ok {
+				entry.Fields["tags"] = append(tags, namespace)
+			}
+		}
+		validNamespaceCount++
 	}
 
 	// Now clean up the message by removing redundant information
@@ -437,7 +499,7 @@ func (p *Parser) parseKongLog(entry *LogEntry, line string) bool {
 
 	// Remove source file information if present; e.g., "[kong] data_plane.lua:376" or "[lua] test.lua:42: "
 	if cleanupSourceMatches := sourceInfoRegex.FindStringSubmatch(cleanedMessage); cleanupSourceMatches != nil {
-		if sourcePattern := buildSourcePattern(cleanupSourceMatches); sourcePattern != "" {
+		if sourcePattern := buildSourcePattern(cleanupSourceMatches, cleanedMessage); sourcePattern != "" {
 			if after, found := strings.CutPrefix(cleanedMessage, sourcePattern); found {
 				cleanedMessage = after
 			}
@@ -522,7 +584,7 @@ func statusCodeToLogLevel(statusCode int) LogLevel {
 }
 
 // buildSourcePattern builds a source pattern string for cleanup based on regex matches.
-func buildSourcePattern(matches []string) string {
+func buildSourcePattern(matches []string, originalMessage string) string {
 	if len(matches) < 4 {
 		return ""
 	}
@@ -533,7 +595,13 @@ func buildSourcePattern(matches []string) string {
 			// With function: "[lua] filename:line: function(): "
 			return fmt.Sprintf("[%s] %s:%s: %s(): ", matches[1], matches[2], matches[3], matches[4])
 		}
-		// Without function: "[kong] filename:line " (space after line number, no colon)
+		// Without function: check if original has colon after line number
+		basePattern := fmt.Sprintf("[%s] %s:%s", matches[1], matches[2], matches[3])
+		if strings.HasPrefix(originalMessage, basePattern+": ") {
+			// "[lua] filename:line: " (colon and space after line number)
+			return fmt.Sprintf("[%s] %s:%s: ", matches[1], matches[2], matches[3])
+		}
+		// "[kong] filename:line " (space after line number, no colon)
 		return fmt.Sprintf("[%s] %s:%s ", matches[1], matches[2], matches[3])
 	}
 
