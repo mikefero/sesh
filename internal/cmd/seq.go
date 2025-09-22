@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -33,12 +32,10 @@ import (
 )
 
 var (
-	seqURL          string
-	seqFlushTimeout time.Duration
-	seqBatchSize    int
-
-	entryQueue []sesh.LogEntry
-	queueMutex sync.Mutex
+	seqURL             string
+	seqFlushTimeout    time.Duration
+	seqCallbackTimeout time.Duration
+	seqBatchSize       int
 )
 
 var seqCmd = &cobra.Command{
@@ -84,6 +81,7 @@ var seqCmd = &cobra.Command{
 		parser := sesh.NewParser()
 		parser = parser.WithCLEF(true)
 		parser = parser.WithFlushTimeout(seqFlushTimeout)
+		parser = parser.WithCallbackTimeout(seqCallbackTimeout)
 		parser = parser.WithEntryCallback(func(entry sesh.LogEntry) {
 			addToQueue(entry)
 		})
@@ -113,15 +111,15 @@ var seqCmd = &cobra.Command{
 		// Parse the input source
 		result, err := parser.ParseReader(ctx, reader)
 
+		// Process any remaining entries in the queue before exiting
+		processQueue(httpClient)
+
 		// Check if context was canceled
 		if ctx.Err() != nil {
 			fmt.Fprintf(os.Stderr, "Parsing interrupted\n")
 		} else if err != nil {
 			return fmt.Errorf("failed to parse logs: %w", err)
 		}
-
-		// Process any remaining entries in the queue before exiting
-		processQueue(httpClient)
 
 		// Output results
 		if err := outputResults(result); err != nil {
@@ -130,13 +128,6 @@ var seqCmd = &cobra.Command{
 
 		return nil
 	},
-}
-
-// addToQueue adds an entry to the processing queue.
-func addToQueue(entry sesh.LogEntry) {
-	queueMutex.Lock()
-	defer queueMutex.Unlock()
-	entryQueue = append(entryQueue, entry)
 }
 
 // processQueue sends all queued entries to Seq in batches.
@@ -194,6 +185,8 @@ func init() {
 	rootCmd.AddCommand(seqCmd)
 
 	// Add flags
+	seqCmd.Flags().DurationVar(&seqCallbackTimeout, "callback-timeout", sesh.DefaultCallbackTimeout,
+		"Timeout to wait for all callback processing to finish before giving up")
 	seqCmd.Flags().DurationVar(&seqFlushTimeout, "flush-timeout", sesh.DefaultFlushTimeout,
 		"Timeout to flush incomplete multi-line entries when streaming")
 	seqCmd.Flags().StringVar(&seqURL, "url", "http://localhost:5480/ingest/clef",

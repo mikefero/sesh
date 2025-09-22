@@ -160,6 +160,17 @@ func TestParser(t *testing.T) {
 			parser = NewParser().WithCLEF(false)
 			assert.False(t, parser.clef)
 		})
+
+		t.Run("with callback timeout", func(t *testing.T) {
+			// Test default value
+			parser := NewParser()
+			assert.Equal(t, DefaultCallbackTimeout, parser.callbackTimeout)
+
+			// Test custom value
+			timeout := 15 * time.Second
+			parser = NewParser().WithCallbackTimeout(timeout)
+			assert.Equal(t, timeout, parser.callbackTimeout)
+		})
 	})
 
 	t.Run("callback requirement", func(t *testing.T) {
@@ -658,6 +669,27 @@ func TestParser(t *testing.T) {
 			assert.Equal(t, LogLevelUnknown, entry.Level)
 			assert.Equal(t, 1, result.Stats.ErrorCount)
 		})
+
+		t.Run("malformed HTTP request defaults to info level", func(t *testing.T) {
+			input := `127.0.0.1 - - [07/Jul/2020:12:30:45 +0000] "INVALID" 200 15 "-" "curl/7.68.0"`
+
+			collector := NewTestEntryCollector()
+			parser := NewParser().WithEntryCallback(collector.Callback)
+			reader := strings.NewReader(input)
+
+			result, err := parser.ParseReader(context.Background(), reader)
+			require.NoError(t, err)
+
+			entries := collector.WaitForEntries(1, 100*time.Millisecond)
+			require.Len(t, entries, 1)
+
+			entry := entries[0]
+			assert.Equal(t, LogEntryTypeNginxAccess, entry.Type)
+			assert.Equal(t, LogLevelInfo, entry.Level) // Default to info when request can't be parsed
+			assert.Empty(t, entry.Message) // No message set for malformed requests
+			assert.Nil(t, entry.HTTPRequest) // No HTTP request object created for malformed requests
+			assert.Equal(t, 0, result.Stats.ErrorCount)
+		})
 	})
 
 	t.Run("nginx startup logs", func(t *testing.T) {
@@ -926,18 +958,18 @@ This is unparseable`
 	t.Run("buildSourcePattern edge cases", func(t *testing.T) {
 		t.Run("insufficient matches", func(t *testing.T) {
 			matches := []string{"", "", ""}
-			result := buildSourcePattern(matches)
+			result := buildSourcePattern(matches, "test message")
 			assert.Empty(t, result)
 		})
 
 		t.Run("empty matches slice", func(t *testing.T) {
 			matches := []string{}
-			result := buildSourcePattern(matches)
+			result := buildSourcePattern(matches, "test message")
 			assert.Empty(t, result)
 		})
 
 		t.Run("nil matches", func(t *testing.T) {
-			result := buildSourcePattern(nil)
+			result := buildSourcePattern(nil, "test message")
 			assert.Empty(t, result)
 		})
 	})
@@ -1053,6 +1085,21 @@ This is unparseable`
 			assert.Equal(t, "function_name", entries[0].Fields["source_function"])
 		})
 
+		t.Run("source info without function or filename and line only", func(t *testing.T) {
+			collector.Reset()
+			kongLog := `2020/07/07 12:30:45 [info] 123#456: file.lua:456: message without function`
+			reader := strings.NewReader(kongLog)
+			parser.ParseReader(context.Background(), reader)
+
+			entries := collector.WaitForEntries(1, 100*time.Millisecond)
+			assert.Len(t, entries, 1)
+			assert.Contains(t, entries[0].Fields, "source_file")
+			assert.Equal(t, "file.lua", entries[0].Fields["source_file"])
+			assert.Equal(t, "456", entries[0].Fields["source_line"])
+			assert.NotContains(t, entries[0].Fields, "source_function")
+			assert.Equal(t, "message without function", entries[0].Message)
+		})
+
 		t.Run("kong timestamp parsing error", func(t *testing.T) {
 			collector.Reset()
 			kongLog := `9999/99/99 99:99:99 [info] 123#456: message with bad timestamp`
@@ -1104,6 +1151,72 @@ This is unparseable`
 			assert.Equal(t, LogEntryTypeKongApplication, entries[0].Type)
 			// Context should be extracted from message
 			assert.Equal(t, "request_id=abc123", entries[0].Fields["context"])
+		})
+
+		t.Run("source info cleanup with colon after line number", func(t *testing.T) {
+			collector.Reset()
+			kongLog := `2020/07/07 12:30:45 [debug] 100#0: *200 [lua] test.lua:42: [namespace] message content here`
+			reader := strings.NewReader(kongLog)
+			parser.ParseReader(context.Background(), reader)
+
+			entries := collector.WaitForEntries(1, 100*time.Millisecond)
+			assert.Len(t, entries, 1)
+			assert.Equal(t, LogEntryTypeKongApplication, entries[0].Type)
+
+			// Source info should be extracted to fields
+			assert.Equal(t, "test.lua", entries[0].Fields["source_file"])
+			assert.Equal(t, "42", entries[0].Fields["source_line"])
+			assert.Equal(t, "namespace", entries[0].Namespace)
+
+			// Message should be cleaned - no source info prefix
+			assert.Equal(t, "message content here", entries[0].Message)
+			assert.NotContains(t, entries[0].Message, "[lua]")
+			assert.NotContains(t, entries[0].Message, "test.lua:42:")
+		})
+
+		t.Run("source info cleanup with multiple namespace brackets", func(t *testing.T) {
+			collector.Reset()
+			kongLog := `2020/07/07 12:30:45 [debug] 100#0: *200 [lua] test.lua:42: [namespace] [extra] message content here`
+			reader := strings.NewReader(kongLog)
+			parser.ParseReader(context.Background(), reader)
+
+			entries := collector.WaitForEntries(1, 100*time.Millisecond)
+			assert.Len(t, entries, 1)
+			assert.Equal(t, LogEntryTypeKongApplication, entries[0].Type)
+
+			// Source info should be extracted to fields
+			assert.Equal(t, "test.lua", entries[0].Fields["source_file"])
+			assert.Equal(t, "42", entries[0].Fields["source_line"])
+			assert.Equal(t, "namespace", entries[0].Namespace)
+
+			// Additional tags should be captured in fields as array
+			assert.Equal(t, []string{"extra"}, entries[0].Fields["tags"])
+
+			// Message should be cleaned - no source info prefix or extra namespace brackets
+			assert.Equal(t, "message content here", entries[0].Message)
+			assert.NotContains(t, entries[0].Message, "[lua]")
+			assert.NotContains(t, entries[0].Message, "test.lua:42:")
+			assert.NotContains(t, entries[0].Message, "[extra]")
+		})
+
+		t.Run("multiple additional tags captured", func(t *testing.T) {
+			collector.Reset()
+			kongLog := `2020/07/07 12:30:45 [debug] 100#0: *200 [lua] test.lua:42: [messaging-utils] [counters] [stats] message content`
+			reader := strings.NewReader(kongLog)
+			parser.ParseReader(context.Background(), reader)
+
+			entries := collector.WaitForEntries(1, 100*time.Millisecond)
+			assert.Len(t, entries, 1)
+			assert.Equal(t, LogEntryTypeKongApplication, entries[0].Type)
+
+			// First namespace becomes primary
+			assert.Equal(t, "messaging-utils", entries[0].Namespace)
+
+			// Additional tags should be captured in fields as array
+			assert.Equal(t, []string{"counters", "stats"}, entries[0].Fields["tags"])
+
+			// Message should be cleaned
+			assert.Equal(t, "message content", entries[0].Message)
 		})
 	})
 
@@ -1379,7 +1492,7 @@ This is unparseable`
 
 		t.Run("kong_request_id with HTTPRequest set", func(t *testing.T) {
 			entry := &LogEntry{
-				Fields:      make(map[string]string),
+				Fields:      make(map[string]interface{}),
 				HTTPRequest: &HTTPRequestInfo{}, // HTTPRequest is set
 			}
 
@@ -1391,7 +1504,7 @@ This is unparseable`
 
 		t.Run("kong_request_id with HTTPRequest nil", func(t *testing.T) {
 			entry := &LogEntry{
-				Fields:      make(map[string]string),
+				Fields:      make(map[string]interface{}),
 				HTTPRequest: nil, // HTTPRequest is nil
 			}
 
@@ -1402,7 +1515,7 @@ This is unparseable`
 
 		t.Run("empty extras string", func(t *testing.T) {
 			entry := &LogEntry{
-				Fields: make(map[string]string),
+				Fields: make(map[string]interface{}),
 			}
 
 			parser.parseAccessLogExtras(entry, "")
@@ -1412,7 +1525,7 @@ This is unparseable`
 
 		t.Run("malformed key-value pairs", func(t *testing.T) {
 			entry := &LogEntry{
-				Fields: make(map[string]string),
+				Fields: make(map[string]interface{}),
 			}
 
 			extras := "no_colon_here, :starts_with_colon, key: value"

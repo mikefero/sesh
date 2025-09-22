@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -40,6 +41,10 @@ var (
 	parseShowResults      bool
 	parseQuiet            bool
 	parseFlushTimeout     time.Duration
+	parseCallbackTimeout  time.Duration
+
+	entryQueue []sesh.LogEntry
+	queueMutex sync.Mutex
 )
 
 var parseCmd = &cobra.Command{
@@ -83,15 +88,19 @@ var parseCmd = &cobra.Command{
 		// Create the parser
 		parser := sesh.NewParser()
 		parser = parser.WithFlushTimeout(parseFlushTimeout)
+		parser = parser.WithCallbackTimeout(parseCallbackTimeout)
 		parser = parser.WithCLEF(parseCLEFOutput)
 		parser = parser.WithEntryCallback(func(entry sesh.LogEntry) {
 			if !parseQuiet {
-				outputEntry(entry)
+				addToQueue(entry)
 			}
 		})
 
 		// Parse the input source
 		result, err := parser.ParseReader(ctx, reader)
+
+		// Process all queued entries (parser waits for all callbacks to complete)
+		processOutputQueue()
 
 		// Check if context was canceled
 		if ctx.Err() != nil {
@@ -109,6 +118,26 @@ var parseCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// addToQueue adds an entry to the processing queue.
+func addToQueue(entry sesh.LogEntry) {
+	queueMutex.Lock()
+	defer queueMutex.Unlock()
+	entryQueue = append(entryQueue, entry)
+}
+
+// processOutputQueue outputs all queued entries.
+func processOutputQueue() {
+	queueMutex.Lock()
+	entries := make([]sesh.LogEntry, len(entryQueue))
+	copy(entries, entryQueue)
+	entryQueue = entryQueue[:0] // Clear the queue
+	queueMutex.Unlock()
+
+	for _, entry := range entries {
+		outputEntry(entry)
+	}
 }
 
 // outputEntry outputs a single log entry with the specified formatting.
@@ -305,6 +334,8 @@ func init() {
 	rootCmd.AddCommand(parseCmd)
 
 	// Add flags
+	parseCmd.Flags().DurationVar(&parseCallbackTimeout, "callback-timeout", sesh.DefaultCallbackTimeout,
+		"Timeout to wait for all callback processing to finish before giving up")
 	parseCmd.Flags().DurationVar(&parseFlushTimeout, "flush-timeout", sesh.DefaultFlushTimeout,
 		"Timeout to flush incomplete multi-line entries when streaming")
 	parseCmd.Flags().BoolVar(&parseNoColor, "no-color", false, "Disable syntax coloring")
