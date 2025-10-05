@@ -305,6 +305,89 @@ func main() {
 }
 ```
 
+## OpenTelemetry OTLP Export
+
+Sesh provides native OpenTelemetry Protocol (OTLP) export for integration with modern observability
+platforms. The OTLP exporter transforms parsed log entries into structured OTLP log records with
+full attribute mapping and semantic conventions support.
+
+**Protocol Support:**
+- **gRPC** (default, port 4317): High-performance binary protocol
+- **HTTP** (port 4318): RESTful alternative with protobuf encoding
+
+**OTLP Attribute Mapping:**
+
+All `LogEntry` fields are exported as OTLP log attributes except `RawMessage` and `RawTimestamp`:
+
+- **Core Fields**:
+  - Timestamp → OTLP log record timestamp
+  - Level → OTLP severity number and text
+  - Message → OTLP log body
+  - Type → `log.type` attribute
+
+- **Process Information**:
+  - ProcessID → `process.id` (int)
+  - WorkerID → `worker.id` (int)
+  - RequestID → `request.id` (int)
+
+- **Context**:
+  - Namespace → `namespace` (string)
+  - MultilineContent → `multiline_content` (OTLP Slice of strings)
+
+- **Custom Fields**:
+  - Fields["key"] → `field.key` attribute
+  - String values preserved as-is
+  - Array values exported as OTLP Slice type
+
+- **HTTP Request** (Semantic Conventions):
+  - Method → `http.method`
+  - Path → `http.path`
+  - Protocol → `http.protocol`
+  - StatusCode → `http.status_code`
+  - ResponseBytes → `http.response_bytes`
+  - ClientAddress → `client.address`
+  - KongRequestID → `kong.request_id`
+
+**Kong Log Level to OTLP Severity Mapping:**
+- `debug` → SeverityDebug (5)
+- `info` → SeverityInfo (9)
+- `notice` → SeverityInfo (9)
+- `warn` → SeverityWarn (13)
+- `error` → SeverityError (17)
+- `alert` → SeverityError (17)
+- `crit` → SeverityFatal (21)
+- `unknown` → SeverityInfo (9)
+
+**Resource Attributes:**
+
+The OTLP exporter automatically includes resource-level metadata:
+- `service.name`: Application name (sesh)
+- `service.version`: Build version with commit hash
+
+**Example Output:**
+
+When you send logs via `./bin/sesh otel`, each log entry becomes a structured OTLP LogRecord:
+
+```
+LogRecord:
+  Timestamp: 2025-09-06 13:04:34 +0000 UTC
+  SeverityText: ERROR
+  SeverityNumber: Error(17)
+  Body: "database connection failed"
+  Attributes:
+    - log.type: "kong"
+    - process.id: 2639
+    - worker.id: 0
+    - request.id: 8345
+    - namespace: "rate-limiting-advanced"
+    - field.source_file: "init.lua"
+    - field.source_line: "70"
+    - field.context: "ngx.timer"
+```
+
+This structured format enables powerful querying and filtering in observability platforms without
+requiring JSON parsing or regex extraction.
+
 ## CLEF Format Support
 
 Sesh supports outputting log entries in CLEF (Compact Log Event Format) for integration with
@@ -401,18 +484,66 @@ tail -f /usr/local/kong/logs/access.log \
 
 # Custom Seq server URL
 ./bin/sesh seq --url http://your-seq-server:5480/ingest/clef /path/to/logs
+
+# Send logs to OpenTelemetry collector via gRPC (default)
+./bin/sesh otel /usr/local/kong/logs/access.log
+
+# Send logs to OpenTelemetry collector via HTTP
+./bin/sesh otel --http /usr/local/kong/logs/access.log
+
+# Send to custom OTLP endpoint
+./bin/sesh otel --endpoint custom-collector:4317 /path/to/logs
+
+# Stream logs to OTLP collector from stdin
+tail -f /usr/local/kong/logs/access.log \
+  /usr/local/kong/logs/admin_access.log \
+  /usr/local/kong/logs/debug_error.log | \
+  ./bin/sesh otel --
+```
+
+## OpenTelemetry Integration
+
+The `otel` command exports logs to any OTLP-compatible observability platform (Loki, SignOz, Grafana, etc.) via the OpenTelemetry Protocol.
+
+**Supported Protocols:**
+- gRPC (default, port 4317): `./bin/sesh otel` or `./bin/sesh otel --grpc`
+- HTTP (port 4318): `./bin/sesh otel --http`
+
+**What's Exported:**
+All LogEntry fields are exported as OTLP log attributes except `RawMessage`:
+- Core: timestamp, level, message, type
+- IDs: process.id, worker.id, request.id
+- Context: namespace, multiline_content (as array)
+- Custom Fields: field.* (supports strings and arrays)
+- HTTP: All HTTPRequest fields with proper semantic conventions
+
+**Example with otel-collector:**
+
+```bash
+# Start local OTLP collector with debug exporter
+make otel-start
+
+# Send logs and inspect in collector output
+./bin/sesh otel /path/to/logs
+
+# View detailed OTLP data in another terminal
+make otel-logs
+
+# Stop collector
+make otel-stop
 ```
 
 ## Docker Operations
 
-Start and stop Seq server for log analysis:
+Start and stop observability services for log analysis:
 
 ```bash
-# Start Seq server and wait for it to be ready
-make seq-start
-
-# Stop Seq server
+# Seq logging server
+make seq-start  # Web UI at http://localhost:5480
 make seq-stop
-```
 
-The Seq web interface will be available at http://localhost:5480 once started.
+# OpenTelemetry collector (with debug exporter)
+make otel-start  # gRPC:4317, HTTP:4318, health:13133
+make otel-stop
+make otel-logs   # View detailed OTLP data being received
+```

@@ -10,6 +10,22 @@ services:
     networks:
       - seq
 
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./config/otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "13133:13133" # Health check extension
+    networks:
+      - otel
+    restart: unless-stopped
+
 networks:
   seq:
+    driver: bridge
+  otel:
     driver: bridge

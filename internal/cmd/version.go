@@ -44,17 +44,7 @@ var versionCmd = &cobra.Command{
 	Long: `The version command prints the version of sesh along with a git
 commit hash of the source tree, OS, architecture, go version, and build date.`,
 	Run: func(_ *cobra.Command, _ []string) {
-		formatVersion := Version
-		if len(formatVersion) == 0 {
-			formatVersion = "dev"
-		}
-		if len(Commit) > 0 {
-			formatVersion = fmt.Sprintf("%s (%s)", formatVersion, Commit)
-		}
-		if len(OsArch) > 0 {
-			formatVersion = fmt.Sprintf("%s %s", formatVersion, OsArch)
-		}
-		fmt.Printf("%s version %s\n", AppName, formatVersion) //nolint:forbidigo
+		fmt.Printf("%s version %s\n", AppName, formatVersion()) //nolint:forbidigo
 		if len(GoVersion) > 0 {
 			fmt.Printf("go version %s\n", GoVersion) //nolint:forbidigo
 		}
@@ -62,6 +52,21 @@ commit hash of the source tree, OS, architecture, go version, and build date.`,
 			fmt.Printf("Built on %s\n", BuildDate) //nolint:forbidigo
 		}
 	},
+}
+
+// formatVersion returns a formatted version string with commit and osarch if available.
+func formatVersion() string {
+	v := Version
+	if len(v) == 0 {
+		v = "dev"
+	}
+	if len(Commit) > 0 {
+		v = fmt.Sprintf("%s (%s)", v, Commit)
+	}
+	if len(OsArch) > 0 {
+		v = fmt.Sprintf("%s %s", v, OsArch)
+	}
+	return v
 }
 
 func init() {
