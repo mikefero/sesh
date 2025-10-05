@@ -18,6 +18,13 @@ exporters:
     sampling_initial: 5
     sampling_thereafter: 200
 
+  # Seq exporter - forwards logs to Seq UI via OTLP
+  otlphttp/seq:
+    endpoint: http://seq:80
+    logs_endpoint: http://seq:80/ingest/otlp/v1/logs
+    tls:
+      insecure: true
+
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
@@ -28,4 +35,4 @@ service:
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [debug, otlphttp/seq]

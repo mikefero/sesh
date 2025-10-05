@@ -9,6 +9,8 @@ services:
       - SEQ_FIRSTRUN_NOAUTHENTICATION=true
     networks:
       - seq
+      - shared
+    restart: unless-stopped
 
   otel-collector:
     image: otel/opentelemetry-collector:latest
@@ -22,10 +24,13 @@ services:
       - "13133:13133" # Health check extension
     networks:
       - otel
+      - shared
     restart: unless-stopped
 
 networks:
   seq:
     driver: bridge
   otel:
+    driver: bridge
+  shared:
     driver: bridge
